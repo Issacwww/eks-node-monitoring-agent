@@ -27,6 +27,7 @@ import (
 
 	"github.com/aws/eks-node-monitoring-agent/api/monitor"
 	"github.com/aws/eks-node-monitoring-agent/api/v1alpha1"
+	"github.com/aws/eks-node-monitoring-agent/internal/version"
 	"github.com/aws/eks-node-monitoring-agent/pkg/conditions"
 	"github.com/aws/eks-node-monitoring-agent/pkg/config"
 	"github.com/aws/eks-node-monitoring-agent/pkg/controllers"
@@ -103,6 +104,8 @@ func run() error {
 
 	logger := zap.New(zap.Level(zapraw.NewAtomicLevelAt(zapcore.Level(-verbosity)))).WithValues("hostname", hostname)
 	log.SetLogger(logger)
+
+	logger.Info("starting eks-node-monitoring-agent", "version", version.String())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -214,6 +217,19 @@ func run() error {
 
 	if len(disabledNames) > 0 {
 		logger.Info("monitors disabled by configuration", "plugins", disabledNames)
+	}
+
+	// Inject per-monitor configuration into monitors that support it
+	if chains := monitorConfig.GetAllowedIPTablesChains(); len(chains) > 0 {
+		for _, mon := range enabledMonitors {
+			type chainConfigurable interface {
+				SetAllowedIPTablesChains([]string)
+			}
+			if c, ok := mon.(chainConfigurable); ok {
+				c.SetAllowedIPTablesChains(chains)
+				logger.Info("configured allowed iptables chains", "monitor", mon.Name(), "chains", chains)
+			}
+		}
 	}
 
 	if len(enabledMonitors) == 0 {
